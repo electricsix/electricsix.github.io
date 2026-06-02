@@ -2,34 +2,375 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>electricsix energy portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>electricsix - Sea Pong</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;600;800&display=swap" rel="stylesheet">
     <style>
-        body {
-            background-color: #0b0f19;
-            color: #f3f4f6;
-            font-family: system-ui, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
+        :root {
+            --sea-dark: #070d19;
+            --sea-mid: #0d1e36;
+            --sea-light: #16365c;
+            --dock-color: #f59e0b;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
             margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
         }
-        .container {
+
+        body {
+            background-color: var(--sea-dark);
+            background-image: radial-gradient(circle at center, var(--sea-mid) 0%, var(--sea-dark) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            padding: 1rem;
+        }
+
+        header {
             text-align: center;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(17,25,40,0.6);
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            margin-bottom: 1.5rem;
+            z-index: 10;
         }
-        h1 { color: #8b5cf6; margin-bottom: 0.5rem; }
-        p { color: #9ca3af; font-size: 0.95rem; }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .game-wrapper {
+            position: relative;
+            background: rgba(17, 25, 40, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 10px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(13, 30, 54, 0.5);
+            backdrop-filter: blur(12px);
+        }
+
+        canvas {
+            display: block;
+            background-color: #0b1528;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            cursor: none;
+        }
+
+        .instructions {
+            margin-top: 1.5rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-align: center;
+            z-index: 10;
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .instructions span {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        /* Subtle animated background waves in body */
+        .wave-bg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: 
+                radial-gradient(ellipse at 30% 20%, rgba(22, 54, 92, 0.15) 0%, transparent 40%),
+                radial-gradient(ellipse at 70% 80%, rgba(13, 30, 54, 0.2) 0%, transparent 45%);
+            z-index: 1;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="wave-bg"></div>
+
+    <header>
         <h1>electricsix energy</h1>
         <p>This domain hosts secure API credentials for local utility integration.</p>
+    </header>
+
+    <div class="game-wrapper">
+        <canvas id="pong" width="800" height="450"></canvas>
     </div>
+
+    <div class="instructions">
+        <span>🖱️ Move mouse/finger vertically to slide Dock</span>
+        <span>⚡ Beat the computer's harbor wall</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("pong");
+        const ctx = canvas.getContext("2d");
+
+        // Game State Variables
+        const paddleWidth = 12;
+        const paddleHeight = 80;
+        const boatSize = 24; // size bounding box for boat emoji
+
+        const player = {
+            x: 20,
+            y: canvas.height / 2 - paddleHeight / 2,
+            width: paddleWidth,
+            height: paddleHeight,
+            score: 0,
+            color: "#60a5fa" // Glowing Blue Dock
+        };
+
+        const computer = {
+            x: canvas.width - 20 - paddleWidth,
+            y: canvas.height / 2 - paddleHeight / 2,
+            width: paddleWidth,
+            height: paddleHeight,
+            score: 0,
+            color: "#f87171" // Glowing Red Dock
+        };
+
+        const boat = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 12,
+            speed: 5,
+            dx: 5,
+            dy: 3,
+            emoji: "🛥️"
+        };
+
+        // Particles for wake trail
+        let particles = [];
+
+        function createWakeParticle(x, y, dx, dy) {
+            // Emits bubbles backward relative to boat travel direction
+            const angle = Math.atan2(dy, dx) + Math.PI + (Math.random() - 0.5) * 0.5;
+            const speed = Math.sqrt(dx*dx + dy*dy) * 0.4;
+            
+            particles.push({
+                x: x - (dx / Math.sqrt(dx*dx + dy*dy)) * 12, // place at rear of boat
+                y: y - (dy / Math.sqrt(dx*dx + dy*dy)) * 4,
+                vx: Math.cos(angle) * speed * (0.8 + Math.random()*0.4),
+                vy: Math.sin(angle) * speed * (0.8 + Math.random()*0.4) + (Math.random() - 0.5) * 0.5,
+                alpha: 0.7,
+                size: 2 + Math.random() * 4,
+                decay: 0.015 + Math.random() * 0.01
+            });
+        }
+
+        // Draw functions
+        function drawRect(x, y, w, h, color) {
+            ctx.fillStyle = color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+            // Rounded corners for docks
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 6);
+            ctx.fill();
+            ctx.shadowBlur = 0; // reset
+        }
+
+        function drawNet() {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 15]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]); // reset
+        }
+
+        function drawScore() {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+            ctx.font = "800 120px 'Outfit'";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(player.score, canvas.width / 4, canvas.height / 2);
+            ctx.fillText(computer.score, 3 * canvas.width / 4, canvas.height / 2);
+        }
+
+        function drawBoat() {
+            // Draw wake particles
+            particles.forEach((p, idx) => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${p.alpha})`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw boat emoji with rotation
+            ctx.save();
+            ctx.translate(boat.x, boat.y);
+            
+            // Calculate travel angle. If going left, mirror boat vertically so it isn't upside down.
+            let angle = Math.atan2(boat.dy, boat.dx);
+            ctx.rotate(angle);
+            
+            ctx.font = `${boatSize}px sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(boat.emoji, 0, 0);
+            ctx.restore();
+        }
+
+        // Collision helper
+        function collision(b, p) {
+            return b.x + b.radius > p.x && 
+                   b.x - b.radius < p.x + p.width && 
+                   b.y + b.radius > p.y && 
+                   b.y - b.radius < p.y + p.height;
+        }
+
+        // Reset boat in middle
+        function resetBoat() {
+            boat.x = canvas.width / 2;
+            boat.y = canvas.height / 2;
+            boat.speed = 5;
+            boat.dx = -boat.dx; // serve to winner
+            boat.dy = (Math.random() - 0.5) * 5;
+            particles = [];
+        }
+
+        // Update loop
+        function update() {
+            // Move boat
+            boat.x += boat.dx;
+            boat.y += boat.dy;
+
+            // Generate wake trail particles
+            createWakeParticle(boat.x, boat.y, boat.dx, boat.dy);
+
+            // Update particles
+            particles.forEach((p, index) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= p.decay;
+                p.size += 0.05; // expand bubble
+                if (p.alpha <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+
+            // Computer AI: Tracks boat with lag
+            const computerSpeed = 3.8;
+            const targetY = boat.y - computer.height / 2;
+            computer.y += (targetY - computer.y) * 0.09;
+            // Clamp computer position
+            computer.y = Math.max(10, Math.min(canvas.height - 10 - computer.height, computer.y));
+
+            // Wall collision (bounce top & bottom)
+            if (boat.y - boat.radius < 0) {
+                boat.y = boat.radius;
+                boat.dy = -boat.dy;
+            } else if (boat.y + boat.radius > canvas.height) {
+                boat.y = canvas.height - boat.radius;
+                boat.dy = -boat.dy;
+            }
+
+            // Check which paddle the boat is heading towards
+            const paddle = (boat.dx < 0) ? player : computer;
+
+            if (collision(boat, paddle)) {
+                // Determine collision bounce angle based on where ball hits paddle
+                let collidePoint = (boat.y - (paddle.y + paddle.height/2));
+                // Normalise value
+                collidePoint = collidePoint / (paddle.height/2);
+                
+                // Calculate bounce angle
+                const angleRad = (Math.PI/4) * collidePoint;
+                
+                // Direction multiplier
+                const direction = (boat.dx < 0) ? 1 : -1;
+                
+                // Increase speed on hit
+                boat.speed = Math.min(12, boat.speed + 0.4);
+                boat.dx = direction * boat.speed * Math.cos(angleRad);
+                boat.dy = boat.speed * Math.sin(angleRad);
+            }
+
+            // Score point
+            if (boat.x - boat.radius < 0) {
+                computer.score++;
+                resetBoat();
+            } else if (boat.x + boat.radius > canvas.width) {
+                player.score++;
+                resetBoat();
+            }
+        }
+
+        // Mouse Controls
+        canvas.addEventListener("mousemove", (event) => {
+            const rect = canvas.getBoundingClientRect();
+            // Scale coordinate to canvas bounds
+            const scaleY = canvas.height / rect.height;
+            player.y = (event.clientY - rect.top) * scaleY - player.height / 2;
+            // Clamp
+            player.y = Math.max(10, Math.min(canvas.height - 10 - player.height, player.y));
+        });
+
+        // Touch Controls for mobile compatibility
+        canvas.addEventListener("touchmove", (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleY = canvas.height / rect.height;
+            const touch = event.touches[0];
+            player.y = (touch.clientY - rect.top) * scaleY - player.height / 2;
+            player.y = Math.max(10, Math.min(canvas.height - 10 - player.height, player.y));
+            event.preventDefault(); // stop scrolling
+        }, { passive: false });
+
+        // Main game render
+        function render() {
+            // Draw clean background
+            ctx.fillStyle = "#091220";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Subtle sea waves background draw
+            ctx.strokeStyle = "rgba(22, 54, 92, 0.25)";
+            ctx.lineWidth = 1;
+            for(let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                ctx.arc(100 + i*150, 80 + i*40, 60, 0, Math.PI, true);
+                ctx.stroke();
+            }
+
+            // Draw Score and Net
+            drawScore();
+            drawNet();
+
+            // Draw Paddles
+            drawRect(player.x, player.y, player.width, player.height, player.color);
+            drawRect(computer.x, computer.y, computer.width, computer.height, computer.color);
+
+            // Draw Boat and Wake
+            drawBoat();
+        }
+
+        // Loop
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
 </body>
 </html>
